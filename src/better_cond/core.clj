@@ -75,7 +75,9 @@
               `(when-let ~expr (cond ~@more-clauses))
               (if (or (= :when-some test) (= 'when-some test))
                 `(when-some ~expr (cond ~@more-clauses))
-                `(if ~test ~expr (cond ~@more-clauses)))))))
+                (if (or (= :letfn test) (= 'letfn test))
+                  `(letfn ~expr (cond ~@more-clauses))
+                  `(if ~test ~expr (cond ~@more-clauses))))))))
       test)))
 
 (defmacro defnc "defn with implicit cond" [& defn-args]
@@ -99,72 +101,72 @@
                             (cons 'clojure.core/defn (spec/unform ::defn-args
                                                                   (assoc-in conf [:bs 1 :bodies] new-bodies))))))
 
-(defmacro defnc- "defn- with implicit cond" [& defn-args]
-  (cond
-    let [conf (spec/conform ::defn-args defn-args),
-         bs (:bs conf)]
-    (= (key bs) :arity-1) (let [body-location (if (= (get-in conf [:bs 1 :body 0]) :prepost+body)
-                                                [:bs 1 :body 1 :body]
-                                                [:bs 1 :body 1])]
-                            (cons 'clojure.core/defn-
-                                  (spec/unform ::defn-args
-                                               (update-in conf body-location #(list (cons 'better-cond.core/cond %))))))
-    (= (key bs) :arity-n) (let [bodies (:bodies (val (conf :bs))),
-                                new-bodies
-                                (mapv (fn [body]
-                                        (let [body-location (if (= (get-in body [:body 0]) :prepost+body)
-                                                              [:body 1 :body]
-                                                              [:body 1])]
-                                          (update-in body body-location #(list (cons 'better-cond.core/cond %)))))
-                                      bodies)]
-                            (cons 'clojure.core/defn- (spec/unform ::defn-args
-                                                                   (assoc-in conf [:bs 1 :bodies] new-bodies))))))
+  (defmacro defnc- "defn- with implicit cond" [& defn-args]
+    (cond
+      let [conf (spec/conform ::defn-args defn-args),
+           bs (:bs conf)]
+      (= (key bs) :arity-1) (let [body-location (if (= (get-in conf [:bs 1 :body 0]) :prepost+body)
+                                                  [:bs 1 :body 1 :body]
+                                                  [:bs 1 :body 1])]
+                              (cons 'clojure.core/defn-
+                                    (spec/unform ::defn-args
+                                                 (update-in conf body-location #(list (cons 'better-cond.core/cond %))))))
+      (= (key bs) :arity-n) (let [bodies (:bodies (val (conf :bs))),
+                                  new-bodies
+                                  (mapv (fn [body]
+                                          (let [body-location (if (= (get-in body [:body 0]) :prepost+body)
+                                                                [:body 1 :body]
+                                                                [:body 1])]
+                                            (update-in body body-location #(list (cons 'better-cond.core/cond %)))))
+                                        bodies)]
+                              (cons 'clojure.core/defn- (spec/unform ::defn-args
+                                                                     (assoc-in conf [:bs 1 :bodies] new-bodies))))))
 
-(defn vec-unformer [a]
-  (into []
-        (mapcat (fn [x] (if (and (coll? x) (#{'& :as} (first x))) x [x])))
-        a))
+  (defn vec-unformer [a]
+    (into []
+          (mapcat (fn [x] (if (and (coll? x) (#{'& :as} (first x))) x [x])))
+          a))
 
-(spec/def ::arg-list
-  (spec/and
-   vector?
-   (spec/conformer vec vec-unformer)
-   (spec/cat :args (spec/* ::binding-form)
-             :varargs (spec/? (spec/cat :amp #{'&} :form ::binding-form)))))
+  (spec/def ::arg-list
+    (spec/and
+     vector?
+     (spec/conformer vec vec-unformer)
+     (spec/cat :args (spec/* ::binding-form)
+               :varargs (spec/? (spec/cat :amp #{'&} :form ::binding-form)))))
 
-(spec/def ::args+body
-  (spec/cat :args ::arg-list
-            :body (spec/alt :prepost+body (spec/cat :prepost map?
-                                                    :body (spec/+ any?))
-                            :body (spec/* any?))))
+  (spec/def ::args+body
+    (spec/cat :args ::arg-list
+              :body (spec/alt :prepost+body (spec/cat :prepost map?
+                                                      :body (spec/+ any?))
+                              :body (spec/* any?))))
 
-(spec/def ::defn-args
-  (spec/cat :name simple-symbol?
-            :docstring (spec/? string?)
-            :meta (spec/? map?)
-            :bs (spec/alt :arity-1 ::args+body
-                          :arity-n (spec/cat :bodies (spec/+ (spec/spec ::args+body))
-                                             :attr (spec/? map?)))))
+  (spec/def ::defn-args
+    (spec/cat :name simple-symbol?
+              :docstring (spec/? string?)
+              :meta (spec/? map?)
+              :bs (spec/alt :arity-1 ::args+body
+                            :arity-n (spec/cat :bodies (spec/+ (spec/spec ::args+body))
+                                               :attr (spec/? map?)))))
 
-(spec/def ::binding-form
-  (spec/or :sym :clojure.core.specs.alpha/local-name
-           :seq ::seq-binding-form
-           :map :clojure.core.specs.alpha/map-binding-form))
+  (spec/def ::binding-form
+    (spec/or :sym :clojure.core.specs.alpha/local-name
+             :seq ::seq-binding-form
+             :map :clojure.core.specs.alpha/map-binding-form))
 
-;; sequential destructuring
+  ;; sequential destructuring
 
-(spec/def ::seq-binding-form
-  (spec/and
-   vector?
-   (spec/conformer vec vec-unformer)
-   (spec/cat :elems (spec/* ::binding-form)
-             :rest (spec/? (spec/cat :amp #{'&} :form ::binding-form))
-             :as (spec/? (spec/cat :as #{:as} :sym :clojure.core.specs.alpha/local-name)))))
+  (spec/def ::seq-binding-form
+    (spec/and
+     vector?
+     (spec/conformer vec vec-unformer)
+     (spec/cat :elems (spec/* ::binding-form)
+               :rest (spec/? (spec/cat :amp #{'&} :form ::binding-form))
+               :as (spec/? (spec/cat :as #{:as} :sym :clojure.core.specs.alpha/local-name)))))
 
-(spec/fdef defnc
-           :args ::defn-args
-           :ret any?)
-           
-(spec/fdef defnc-
-           :args ::defn-args
-           :ret any?)
+  (spec/fdef defnc
+    :args ::defn-args
+    :ret any?)
+  
+  (spec/fdef defnc-
+    :args ::defn-args
+    :ret any?)
